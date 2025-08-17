@@ -15,7 +15,7 @@ export function getConfigPath(): string {
 
 export function loadConfig(): Config {
   const configPath = getConfigPath();
-  const defaultConfig: Config = { log: true, cache: true };
+  const defaultConfig: Config = { log: true, cache: true, profile: 'default' };
 
   if (!existsSync(configPath)) {
     return defaultConfig;
