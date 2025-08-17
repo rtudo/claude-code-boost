@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import { autoApproveTools } from './commands/auto-approve-tools.js';
 import { install } from './commands/install.js';
 import { clearApprovalCache } from './commands/debug.js';
+import { setProfile } from './commands/set-profile.js';
 
 const program = new Command();
 
@@ -33,6 +34,17 @@ program
     'Skip interactive prompts (for testing/automation)'
   )
   .action(install);
+
+program
+  .command('set-profile <profile>')
+  .description('Set security profile (strict, default, or permissive)')
+  .action((profile) => {
+    if (!['strict', 'default', 'permissive'].includes(profile)) {
+      console.error('Invalid profile. Choose: strict, default, or permissive');
+      process.exit(1);
+    }
+    setProfile(profile as 'strict' | 'default' | 'permissive');
+  });
 
 const debugCommand = program
   .command('debug')

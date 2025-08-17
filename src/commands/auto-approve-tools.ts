@@ -12,9 +12,19 @@ import { getCachedDecision, setCachedDecision } from '../utils/cache.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-function loadSystemPrompt(): string {
-  const promptPath = join(__dirname, '../../prompts/system-prompt.md');
-  return readFileSync(promptPath, 'utf8');
+function loadSystemPrompt(
+  profile: 'strict' | 'default' | 'permissive' = 'default'
+): string {
+  const promptPath = join(__dirname, `../../prompts/profiles/${profile}.md`);
+  try {
+    return readFileSync(promptPath, 'utf8');
+  } catch {
+    // Fallback to default profile if specified profile doesn't exist
+    // eslint-disable-next-line no-console
+    console.warn(`Profile ${profile} not found, using default profile`);
+    const defaultPath = join(__dirname, '../../prompts/profiles/default.md');
+    return readFileSync(defaultPath, 'utf8');
+  }
 }
 
 function loadUserPromptTemplate(): string {
@@ -45,7 +55,7 @@ async function queryClaudeAPI(
   }
 
   const anthropic = new Anthropic({ apiKey });
-  const systemPrompt = loadSystemPrompt();
+  const systemPrompt = loadSystemPrompt(config.profile || 'default');
   const userPrompt = buildUserPrompt(toolName, toolInput);
 
   try {
@@ -79,17 +89,18 @@ async function queryClaudeAPI(
 
     const jsonData = JSON.parse(responseText);
     return parseClaudeResponse(jsonData);
-  } catch (error) {
+  } catch {
     throw new Error(`Failed to query Claude API: ${error}`);
   }
 }
 
 async function queryClaudeCode(
   toolName: string,
-  toolInput: Record<string, unknown>
+  toolInput: Record<string, unknown>,
+  profile: 'strict' | 'default' | 'permissive' = 'default'
 ): Promise<ClaudeResponse> {
   return new Promise((resolve, reject) => {
-    const systemPrompt = loadSystemPrompt();
+    const systemPrompt = loadSystemPrompt(profile);
     const userPrompt = buildUserPrompt(toolName, toolInput);
     const combinedPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
@@ -156,12 +167,14 @@ const FAST_APPROVE_TOOLS = new Set([
 ]);
 
 // Tools that are safe for writing/editing in development contexts
-const SAFE_WRITE_TOOLS = new Set([
-  'Write',
-  'Edit',
-  'MultiEdit',
-  'NotebookEdit',
-]);
+// NOTE: These are commented out to require AI approval for all write operations
+// Uncomment the lines below to re-enable fast approval for write operations
+// const SAFE_WRITE_TOOLS = new Set([
+//   'Write',
+//   'Edit',
+//   'MultiEdit',
+//   'NotebookEdit',
+// ]);
 
 function hasApiKeyConfigured(): boolean {
   const config = loadConfig();
@@ -170,9 +183,44 @@ function hasApiKeyConfigured(): boolean {
 
 function shouldFastApprove(
   toolName: string,
-  _toolInput: Record<string, unknown>
+  _toolInput: Record<string, unknown>,
+  profile: 'strict' | 'default' | 'permissive' = 'default'
 ): HookOutput | null {
-  // Always approve read-only tools
+  // In strict mode, only fast-approve read-only tools
+  if (profile === 'strict') {
+    if (FAST_APPROVE_TOOLS.has(toolName)) {
+      return {
+        decision: 'approve',
+        reason: `${toolName} is a safe read-only operation`,
+      };
+    }
+    return null; // Everything else needs AI review in strict mode
+  }
+
+  // In permissive mode, fast-approve both read and write tools
+  if (profile === 'permissive') {
+    if (FAST_APPROVE_TOOLS.has(toolName)) {
+      return {
+        decision: 'approve',
+        reason: `${toolName} is a safe read-only operation`,
+      };
+    }
+    // Re-enable the SAFE_WRITE_TOOLS for permissive mode
+    const SAFE_WRITE_TOOLS = new Set([
+      'Write',
+      'Edit',
+      'MultiEdit',
+      'NotebookEdit',
+    ]);
+    if (SAFE_WRITE_TOOLS.has(toolName)) {
+      return {
+        decision: 'approve',
+        reason: `${toolName} is a safe development operation`,
+      };
+    }
+  }
+
+  // Default mode: approve read-only, but not write operations
   if (FAST_APPROVE_TOOLS.has(toolName)) {
     return {
       decision: 'approve',
@@ -180,18 +228,13 @@ function shouldFastApprove(
     };
   }
 
-  // Approve safe write tools for development files
-  if (SAFE_WRITE_TOOLS.has(toolName)) {
-    return {
-      decision: 'approve',
-      reason: `${toolName} is a safe development operation`,
-    };
-  }
-
   return null; // No fast approval, use AI query
 }
 
-export async function autoApproveTools(useClaudeCli?: boolean): Promise<void> {
+export async function autoApproveTools(
+  useClaudeCli?: boolean,
+  _profileOverride?: string
+): Promise<void> {
   try {
     const input = readFileSync(0, 'utf8');
     const jsonData = JSON.parse(input);
@@ -204,7 +247,8 @@ export async function autoApproveTools(useClaudeCli?: boolean): Promise<void> {
     // Check for fast approval first
     const fastApproval = shouldFastApprove(
       hookData.tool_name,
-      hookData.tool_input
+      hookData.tool_input,
+      config.profile || 'default'
     );
     if (fastApproval) {
       output = fastApproval;
@@ -231,7 +275,11 @@ export async function autoApproveTools(useClaudeCli?: boolean): Promise<void> {
 
         // Fall back to AI-powered decision making
         const claudeResponse = shouldUseClaudeCli
-          ? await queryClaudeCode(hookData.tool_name, hookData.tool_input)
+          ? await queryClaudeCode(
+              hookData.tool_name,
+              hookData.tool_input,
+              config.profile || 'default'
+            )
           : await queryClaudeAPI(hookData.tool_name, hookData.tool_input);
 
         output = {
@@ -268,7 +316,7 @@ export async function autoApproveTools(useClaudeCli?: boolean): Promise<void> {
 
     process.stdout.write(JSON.stringify(output));
     process.exit(0);
-  } catch (error) {
+  } catch {
     process.stderr.write(`Error processing hook input: ${error}\n`);
     process.exit(1);
   }

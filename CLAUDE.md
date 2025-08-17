@@ -76,6 +76,16 @@ npm run build && node dist/index.js install --project-local # Install to project
 - **Destructive-only blocking** - Only blocks genuinely harmful operations (rm -rf /, system wipes)
 - **Developer trust** - Assumes most operations are legitimate development work
 
+### Customization: Disabling Auto-Approval for Write Operations
+
+By default, CCB fast-approves file write operations (Write, Edit, MultiEdit, NotebookEdit) for developer productivity. To require AI approval for all write operations:
+
+1. Edit `src/commands/auto-approve-tools.ts`
+2. Comment out the `SAFE_WRITE_TOOLS` set and the corresponding logic in `shouldFastApprove()`
+3. Rebuild with `npm run build`
+
+This ensures all write operations go through AI analysis for approval, providing an extra layer of security at the cost of some convenience. The code includes clear comments showing how to re-enable fast approval for write operations if needed.
+
 ### Testing Strategy
 - Unit tests for approval logic
 - Integration tests with actual Claude API calls

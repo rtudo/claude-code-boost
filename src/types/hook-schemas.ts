@@ -31,6 +31,7 @@ export const ConfigSchema = z.object({
   log: z.boolean().default(true),
   apiKey: z.string().optional(), // Anthropic API key (sk-...)
   cache: z.boolean().default(true), // Enable approval caching
+  profile: z.enum(['strict', 'default', 'permissive']).default('default'), // Security profile
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
